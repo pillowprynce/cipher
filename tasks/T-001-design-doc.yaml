@@ -1,0 +1,6 @@
+id: T-001
+goal: Solid GitHub-native Cipher design doc (Research → Analyst → Critic → Verifier)
+assignee: analyst
+status: in_progress
+deps: [T-000]
+notes: Research done 2026-10-07; Analyst outlining under artifacts/

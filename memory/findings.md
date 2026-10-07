@@ -36,3 +36,125 @@ _Append-only notes from Research, Analyst, and Critic. Cite sources; mark confid
   5. Budget scarce tools (rate limits, GPU, Actions minutes) or agents will flood them.
 - Confidence: high for paper claims (primary sources checked Oct 5 2026); medium for Cipher mapping (design recommendation, not yet empirically validated in-repo).
 - Open questions: Does Cipher stay coordinator-centric, or evolve toward DeLM/Agensh-style pull queues for coding subtasks? ADR needed for memory write concurrency.
+
+### 2026-10-07 — Research — Prior art brief for Cipher design-doc pipeline
+_Coordinator kickoff (design-doc pipeline). No formal task id assigned; Research executed on Coordinator message. Sources fetched/searched 2026-10-07 CT._
+
+#### (1) Prior art — multi-agent coding systems (high-level)
+
+##### Microsoft AutoGen → AG2 / Microsoft Agent Framework
+- **What:** AutoGen pioneered multi-agent chat/orchestration at Microsoft Research; GitHub marks AutoGen in **maintenance mode** and steers new work to **Microsoft Agent Framework (MAF)** workflows. Community fork **AG2** continues the AutoGen lineage (`ag2` package + AG2 Classic for `import autogen`).
+- **Orchestration:** AutoGen/AgentChat: two-agent chat, group chat, nested chats. AG2 v1: Hub + typed channels (Network) replacing GroupChat/swarms. MAF: graph Workflows — sequential, concurrent, handoff, group-chat, Magentic (manager coordinates specialists); tool-approval / human-in-the-loop pauses.
+- **Memory / tools / verification:** Tool use + middleware/guardrails in MAF; context providers for memory/RAG; approval gates on sensitive tools. No first-class “evidence-gated Verifier” role like Cipher — success is workflow completion / human approval.
+- **GitHub affinity:** General-purpose frameworks; not GitHub-native (PRs/issues/Actions) by default.
+- **Citations:** https://github.com/microsoft/autogen · https://github.com/ag2ai/ag2 · https://learn.microsoft.com/en-us/agent-framework/journey/workflows · https://learn.microsoft.com/en-us/agent-framework/workflows/orchestrations/sequential
+- **Confidence:** high (official README + Learn docs)
+
+##### CrewAI
+- **What:** Role-based multi-agent framework: **Crews** (collaborative agents + tasks) and **Flows** (event-driven production orchestration with persisted state).
+- **Orchestration:** Sequential or hierarchical process; hierarchical needs `manager_llm` / `manager_agent`. Delegation (`allow_delegation`) and Ask-Question tools; Flows compose Crews with `@start` / `@listen` / `@router` / `@persist`.
+- **Memory / tools / verification:** Unified `Memory` API (scopes, remember/recall, fact extraction after tasks); task `context` deps; optional task **guardrails** + retries. Verification = guardrails / manager validation / human_input — not a separate evidence Verifier with tests/ as gate.
+- **GitHub affinity:** General-purpose; Enterprise deploy option; not PR/issue/Actions-first.
+- **Citations:** https://docs.crewai.com/edge/en/concepts/crews · https://docs.crewai.com/edge/en/concepts/tasks · https://docs.crewai.com/edge/en/concepts/flows · https://docs.crewai.com/edge/en/concepts/memory · https://docs.crewai.com/edge/en/concepts/collaboration
+- **Confidence:** high
+
+##### MetaGPT
+- **What:** “Software company as multi-agent system” — one-line requirement → user stories, designs, APIs, code, docs via SOP-driven roles (PM, architect, engineer, etc.). Philosophy: `Code = SOP(Team)`.
+- **Orchestration:** Roles publish/observe Messages in an Environment; `_watch` upstream Actions; Team hire pattern; SOP pipelines rather than free-form debate.
+- **Memory / tools / verification:** Shared Environment messages + ProjectRepo artifacts; tester/reviewer roles in tutorials. Strong SOP structure; weaker explicit red-team → evidence-gate loop than Cipher DESIGN.
+- **GitHub affinity:** Generates project repos locally; not GitHub Actions/PR-native reference.
+- **Citations:** https://github.com/FoundationAgents/MetaGPT · https://docs.deepwisdom.ai/main/en/guide/get_started/introduction.html · https://docs.deepwisdom.ai/v0.8/en/guide/tutorials/multi_agent_101.html
+- **Confidence:** high
+
+##### OpenDevin → OpenHands
+- **What:** Open-source AI software-engineering platform (formerly OpenDevin): GUI, CLI, Python SDK, Agent Server; agents write/edit code, run bash, browse, track tasks in a **Workspace** (local / Docker / remote).
+- **Orchestration:** Primarily **single agent + tools** (CodeAct-style action/observation loop); delegation to specialists possible; Conversation lifecycle. Multi-agent is secondary to sandboxed coding agent execution.
+- **Memory / tools / verification:** Event/conversation history; FileEditor, Terminal, TaskTracker tools; Docker/remote sandbox recommended. Tests/linters via agent commands — no mandatory Critic→Verifier evidence pipeline in the product model.
+- **GitHub affinity:** Cloud sign-in with GitHub/GitLab; issue→task automations in Agent Canvas narrative; still an agent platform, not a GitHub-native swarm reference architecture.
+- **Citations:** https://github.com/OpenHands/OpenHands · https://docs.openhands.dev/sdk/getting-started · https://docs.openhands.dev/sdk/arch/agent-server · https://openhands.dev
+- **Confidence:** high for product shape; medium for internal multi-agent delegation details (docs emphasize SDK agent + tools)
+
+##### Aider-style coding agents
+- **What:** Terminal AI pair-programmer tightly bound to a **git repo**: edit files, auto-commit with Conventional Commits messages, `/undo`, repo map for large codebases, lint/test hooks.
+- **Orchestration:** Mostly **single-agent** (optionally architect/editor two-model mode); human drives chat; not a multi-role swarm.
+- **Memory / tools / verification:** Chat history + repo map; git history as undo/audit; `/test` / `/lint` feedback into chat. Verification = human + tests, not Critic/Verifier roles.
+- **GitHub affinity:** Excellent **local git** affinity (commits, branches, undo); PR/issue/Actions workflows are out-of-band (human or CI).
+- **Citations:** https://aider.chat/docs/ · https://aider.chat/docs/git.html · https://github.com/Aider-AI/aider
+- **Confidence:** high
+
+##### GitHub Copilot cloud agent / coding-agent patterns (public docs only)
+- **What:** Asynchronous **Copilot cloud agent** on GitHub.com: research repo, plan, edit, run tests/linters in an **ephemeral firewalled** environment, open/update PRs; also chat, code review, automations, Agentic Workflows (Markdown→Actions).
+- **Orchestration:** Single delegated agent session per task (not a Research/Builder/Analyst fan-out swarm); human starts from issue/PR/chat; iterates via PR comments (`@copilot`). Session cap ~59 minutes; one branch / one PR per task; repo-scoped.
+- **Memory / tools / verification:** Session logs; Copilot Memory (longer-term prefs — distinct from session context); CodeQL/secret scanning/dependency analysis on generated code; **human review required** before merge; Actions on agent PRs need write-user approval; no org/repo Actions secrets by default (only `copilot` environment secrets).
+- **GitHub affinity:** **Highest** of surveyed systems — issues, PRs, Actions, branch protections, MCP, automations are first-class.
+- **Citations:** https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-coding-agent · https://docs.github.com/en/copilot/responsible-use/copilot-coding-agent · https://docs.github.com/en/copilot/tutorials/cloud-agent/build-guardrails · https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent
+- **Confidence:** high (official docs)
+
+##### Related (already in seed — do not re-litigate)
+- 2026 papers (Agensh, DeLM, STORM, Parallel Claudes, Anthropic multiagent patterns) already logged above; they inform concurrency/claiming more than product frameworks.
+
+#### (2) Gaps vs Cipher DESIGN.md
+
+| Cipher DESIGN claim | Prior art status | Gap direction |
+|---------------------|------------------|---------------|
+| Coordinator + Research/Builder/Analyst fan-out → shared memory → Critic → Verifier evidence gate | Closest: MetaGPT SOP roles; CrewAI hierarchical + guardrails; MAF Magentic/group-chat. **None** package Critic + **evidence-gated Verifier** (tests/ artifacts) as a hard loop exit as explicitly as Cipher. | **Cipher differentiator** — keep and specify evidence schema |
+| Controlled tool interface (not unlimited) | AutoGen/MAF tool approval; CrewAI tools; OpenHands tool allowlists; Copilot CLI permission prompts / cloud firewall | Cipher stubs exist (`src/tools.py`) but **permission ADR + allowlist enforcement** still open (DESIGN §8) |
+| GitHub-native first (repos, PRs, issues, Actions) | Only Copilot cloud agent is truly GitHub-native; others are general or local-git (Aider) | **Cipher unique positioning** if it remains a *reference swarm* that *uses* GitHub primitives — DESIGN silent on concrete issue/PR/Actions mapping |
+| Aggressive only in authorized sandbox | Copilot ephemeral firewall; OpenHands Docker; CLI directory scope | Cipher states boundary well; needs **operational** sandbox definition (box vs Actions runner vs Docker) |
+| Shared workspace `memory/findings.md` + `state.md` + tasks/ | CrewAI Memory (vector scopes); DeLM checked-context; Agensh notes board; Aider git history | Cipher’s **markdown append-only board** is simpler/auditable; silent on concurrency locks, claim protocol, verified-vs-unchecked entries (seed papers flagged this) |
+| Debate / challenge coordinator / abandon approaches | Group chat / Magentic / Crew delegation exist; “cheat” semantics are Cipher-specific | Others under-specify **authorized adversarial collaboration**; Cipher under-specifies **when** debate is mandatory vs optional |
+| Budget / permissions on agent runtime | CrewAI `max_rpm`, budgets informal elsewhere; Copilot AI credits + 59m session | Cipher table exists; **no concrete budget units or enforcement** yet |
+| `create_agent()` spawn | Copilot SDK sub-agents; CrewAI delegation; OpenHands delegation | DESIGN lists tool; **spawn policy / depth limits** unspecified |
+| What others emphasize that DESIGN is silent on | Persistent vector memory (CrewAI); git auto-commit undo (Aider); firewalled ephemeral runners + secret isolation (Copilot); Flows/`@persist` crash-resume (CrewAI); Hub audit WAL (AG2); conflict-at-write / task claiming (STORM/DeLM/Agensh seed) | Recommend Analyst cover: **claim locks, CI-as-verifier, secret scopes, crash-resume, git commit discipline** |
+
+**Assumptions for Critic (explicit):**
+1. Cipher stays **reference architecture + prototype**, not competing with Copilot SaaS — GitHub-native means *integrating* Actions/PRs/issues, not replacing Copilot.
+2. Markdown shared memory remains primary through v0; vector memory is optional later.
+3. “Evidence” for Verifier means artifacts under `tests/` + logs, not merely LLM self-check.
+4. Multi-Builder parallelism is desired eventually (seed papers) — not yet locked in DESIGN.
+
+#### (3) Recommended memory / task schemas
+
+Compatible with DESIGN §6–7 and `tasks/README.md`; informed by DeLM (checked context), Agensh (append-only board), CrewAI (facts + scopes), Copilot (session logs / human gate).
+
+**`memory/findings.md` (keep append-only)**
+- Continue dated entries: Claim / Evidence / Confidence / Open questions.
+- Add optional fields per entry: `sources[]` (URLs), `verified: yes|no|partial` (only Verifier or Critic+tests flip to `yes`), `task_id`, `agent`.
+- Prefer **atomic claims**; link heavy dumps to `artifacts/`.
+- Convention: agents may append unchecked findings; Coordinator/Verifier promote summaries into `state.md` only after Critic pass or Verifier evidence.
+
+**`memory/state.md`**
+- Keep: Current goal, Phase, Pipeline status table, Last verdict, Open questions, Next.
+- Add: `Active task ids`, `Blocked on`, `Repo URL`, `Safety reminder` one-liner (sandbox-only), `Budget spent` (optional).
+- Last verdict shape: `PASS|FAIL|PENDING` + evidence paths + Critic summary link.
+
+**`tasks/` schema (extend minimal fields, don’t break T-000)**
+| Field | Rec | Notes |
+|-------|-----|-------|
+| `id`, `goal`, `assignee`, `status`, `deps` | required | existing |
+| `status` values | keep + add `claimed` | or treat `running` as claimed; set immediately on assign to avoid dual-write (Parallel Claudes lesson) |
+| `budget` | optional → recommended | e.g. `steps|tokens|minutes` |
+| `permissions` | optional → recommended | subset of tools allowlist |
+| `artifacts[]` | optional | paths under artifacts/ |
+| `evidence[]` | new optional | paths under tests/logs for Verifier |
+| `claim_file` / lock | new optional | e.g. `tasks/locks/T-001.lock` with agent id + timestamp |
+| `parent` / `spawned_by` | new optional | for `create_agent()` lineage |
+| `github` | new optional | `{issue, pr, branch, run_id}` for GitHub-native slices |
+
+**Handoff (DESIGN §6):** keep `goal → findings → artifact → critique → verdict`; require Critic notes path + Verifier evidence list before PASS.
+
+#### (4) Risks — GitHub-native reference + prototype
+
+**Safety boundary (explicit, non-negotiable):** Cipher is aggressive **only inside an authorized sandbox**. It must **not** bypass security, steal credentials/data, evade safeguards, or break into systems. Elevated access only via proper channels. No security-bypass tooling, credential theft, or break-in workflows — ever.
+
+1. **Prompt injection via issues/PRs/comments** — Untrusted issue bodies and review comments can instruct agents to exfiltrate secrets or widen scope. Mitigate: treat issue/PR text as untrusted data; strip hidden chars (Copilot pattern); allowlist tools; never pass repo secrets into agent context by default.
+2. **Token / secret blast radius** — Fine-grained PATs, Actions secrets, `copilot` env secrets, MCP credentials. Mitigate: least-privilege tokens; separate bot account; no org secrets in agent jobs; rotate; never log tokens; sandbox FS without `~/.config` credentials.
+3. **CI cost & Actions minute burn** — Swarm retries + matrix builds can exhaust minutes/quotas (Anthropic bandwidth contention lesson). Mitigate: budgets per task; cap concurrent jobs; fail-fast Verifier; cache.
+4. **Branch / PR chaos** — Multiple agents pushing overlapping branches, force-pushes, skipping reviews. Mitigate: one writer branch per task claim; branch protection; require human merge; signed commits / co-author trail; no agent merge to default branch.
+5. **Verifier theater** — LLM declares PASS without real tests. Mitigate: Verifier requires `tests/` or CI run_id evidence; Critic attacks assumptions before Verifier.
+6. **Sandbox escape confusion** — “Authorized sandbox” undefined across laptop box vs GH Actions vs Docker. Mitigate: ADR naming allowed execution venues and forbidden host access.
+7. **Supply chain / MCP trust** — Malicious or over-broad MCP servers (Copilot SDK warning). Mitigate: pin allowlisted MCP; CODEOWNERS on agent config.
+8. **Legal/compliance on generated code** — Public-code matches, insecure suggestions. Mitigate: human review; secret scanning; dependency audit — same as Copilot responsible-use guidance.
+
+- **Confidence (section overall):** high for prior-art descriptions; **medium** for Cipher gap mapping (design judgment); **medium** for schema extras pending Coordinator ADR.
+- **Open questions:** Formal task id for this research? Coordinator-centric vs pull-queue for coding subtasks? Exact GitHub event triggers (issue labeled / PR comment) for prototype v0? Memory write concurrency ADR owner?
