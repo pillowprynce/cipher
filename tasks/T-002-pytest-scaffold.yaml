@@ -1,0 +1,6 @@
+id: T-002
+goal: Scaffold real pytest for src/ stubs (user lock — Verifier needs executable tests)
+assignee: builder
+status: claimed
+deps: [T-000]
+notes: tests/ is .gitkeep only; required before design-doc re-verify PASS

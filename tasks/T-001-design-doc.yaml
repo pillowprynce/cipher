@@ -1,6 +1,10 @@
 id: T-001
-goal: Solid GitHub-native Cipher design doc (Research → Analyst → Critic → Verifier)
+goal: Solid GitHub-native Cipher design doc (Research → Analyst → Critic → Verifier). Sandbox-only; no security bypass / credential theft / safeguard evasion / break-ins.
 assignee: analyst
-status: in_progress
+status: blocked
 deps: [T-000]
-notes: Research done 2026-10-07; Analyst outlining under artifacts/
+notes: Verifier FAIL 2026-10-07. Fix Critic B1–B4 + R1–R5 then re-verify. Parallel T-002 pytest.
+artifacts:
+  - artifacts/design-doc-outline.md
+  - artifacts/critique-design-doc-outline-2026-10-07.md
+  - logs/verdict-T-001-2026-10-07.md

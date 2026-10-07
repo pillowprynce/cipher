@@ -158,3 +158,49 @@ Compatible with DESIGN §6–7 and `tasks/README.md`; informed by DeLM (checked 
 
 - **Confidence (section overall):** high for prior-art descriptions; **medium** for Cipher gap mapping (design judgment); **medium** for schema extras pending Coordinator ADR.
 - **Open questions:** Formal task id for this research? Coordinator-centric vs pull-queue for coding subtasks? Exact GitHub event triggers (issue labeled / PR comment) for prototype v0? Memory write concurrency ADR owner?
+
+### 2026-10-07 — Analyst — Design-doc outline (tradeoffs + recs)
+- Claim: v0 pillars should be (1) evidence-gated Critic→Verifier loop, (2) issue-driven GitHub mapping + Actions as Verifier evidence, (3) claim locks + append-only findings with `verified` flag; defer vector memory and multi-Builder conflict-at-write.
+- Evidence: Artifact `artifacts/design-doc-outline.md` synthesizes Research prior-art brief, Swarm Watch papers, DESIGN.md §5 locks, tasks/README schema. Covers gaps vs prior art, memory/task schema proposals, GitHub-native options A–D with A+C recommended, risks/mitigations, open ADRs, suggested T-001–T-005.
+- Confidence: high on gap table (sourced Research); medium on trigger/concurrency ADR choices (design judgment).
+- Open questions: Formal task YAML still missing; Critic should attack assumptions in outline §1.2; Verifier PASS/FAIL vs design-doc goal.
+- Safety: Sandbox-only; no security bypass / credential theft / safeguard evasion / break-ins — restated in outline §0.
+
+### 2026-10-07 — Research — User lock: real tests required
+- Claim: Verifier **must not** PASS on LLM judgment alone. Cipher v0 requires **real executable tests** (and/or CI run evidence) under `tests/` linked from the verdict. “Verifier theater” is a product FAIL, not a soft risk.
+- Evidence: User directive 2026-10-07 CT: “We need real tests.” Aligns with DESIGN Verifier evidence gate, Research risk #5, Analyst outline §1.2 assumption 3, and `tests/README.md` (“No PASS without evidence”).
+- Confidence: **high** (direct user product lock).
+- Implications:
+  1. Design doc: elevate from mitigation bullet → **hard acceptance criterion** for any Verifier PASS.
+  2. Prototype: add runnable pytest (or equivalent) for `src/loop.py` / `src/tools.py` stubs ASAP — empty `tests/.gitkeep` is not enough.
+  3. GitHub-native path: Actions workflow must run those tests; Verifier evidence includes green `run_id` or local pytest transcript path.
+  4. Critic: attack any outline/doc that allows self-declared PASS.
+- Open questions: Minimum first suite owner (Builder)? Framework (pytest recommended)? Required coverage for T-000 stubs before design-doc Verifier PASS?
+- Safety: unchanged — sandbox-only; no bypass / credential theft / safeguard evasion / break-ins.
+
+### 2026-10-07 — Critic — Red-team design-doc outline
+- Claim: Analyst outline is the right shape but **not** Verifier-ready as a hard PASS. Four blockers: (B1) evidence schema still allows Verifier theater via and/or paths, (B2) GitHub A+C assumes automation/identity Cipher lacks, (B3) task status enum drift (README vs outline vs T-001 `in_progress`), (B4) authorized sandbox still undefined while treated as operational. Also: only Verifier may set `verified: yes`; single-writer for memory/ in v0; vs-Copilot table required; spawn depth cap; forbid force-push/--no-verify on shared branches.
+- Evidence: Full critique in `artifacts/critique-design-doc-outline-2026-10-07.md`. Inputs: outline, findings (Research + Swarm Watch + Analyst), DESIGN.md, state.md, tasks/README.md, T-001-design-doc.yaml.
+- Confidence: high on schema/status contradictions and theater hole (direct file reads); medium on GitHub actor split (design judgment).
+- Open questions: Will Coordinator waive B1–B4 as residual risk, or require outline revision before Verifier PASS?
+- Safety: Sandbox-only critique; no bypass / credential theft / safeguard evasion / break-ins.
+- Critic signal: **CONDITIONAL / BLOCK** → Verifier should FAIL “ready to iterate” until B1–B4 fixed or explicitly waived.
+
+### 2026-10-07 — Verifier — T-001 design-doc FAIL
+- Claim: Outline is not ready to iterate on as a gated PASS. Critic B1–B4 confirmed by independent file checks; no Coordinator waive.
+- Evidence:
+  - Verdict log: `logs/verdict-T-001-2026-10-07.md`
+  - Critique: `artifacts/critique-design-doc-outline-2026-10-07.md`
+  - Outline still has theater hole (risk #5 and/or); no `tests/evidence/`; README status enum lacks `claimed`; §0 sandbox slogan only; §4.2 A+C without actor/manual split
+  - User lock: real tests required (findings entry above)
+- Verdict: **FAIL**
+- Confidence: high (direct reads)
+- Open questions: Analyst revise vs Coordinator waive B1–B4?
+- Safety: Sandbox-only; no bypass / credential theft / safeguard evasion / break-ins.
+
+### 2026-10-07 — Analyst — Outline v0.1 clears Critic B1–B4
+- Claim: Revised `artifacts/design-doc-outline.md` (v0.1) addresses Critic blockers B1–B4 and required items R1–R6: machine-checkable evidence schema; manual v0 vs automated v0.5 GitHub actor split; unified task status enum; operational sandbox stub; Verifier-only `verified:yes`; single memory writer; vs-Copilot table; forbidden git actions; spawn depth 0 for specialists.
+- Evidence: Outline §§0.1–0.3, 1.3–1.4, 3.0–3.4, 4.1–4.3, 8 disposition table; `tasks/README.md` enum includes `claimed`; `tasks/T-001-design-doc.yaml` notes updated (status `running`).
+- Confidence: high that blockers are addressed in-doc; medium that Verifier will accept doc-only process evidence for this design-doc goal (no CI run_id for markdown).
+- Open questions: Verifier PASS/FAIL on v0.1; whether Coordinator waives any residual ADR depth.
+- Safety: Sandbox venues stubbed; untrusted intake + forbidden force-push/--no-verify restated.

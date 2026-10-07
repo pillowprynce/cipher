@@ -11,7 +11,7 @@ Minimal fields (YAML or Markdown front matter + body):
 | `id` | string | Stable id, e.g. `T-001` |
 | `goal` | string | What done looks like for this slice |
 | `assignee` | string | Role or agent id (`research`, `builder`, …) |
-| `status` | enum | `pending` \| `running` \| `blocked` \| `done` \| `abandoned` |
+| `status` | enum | `pending` \| `claimed` \| `running` \| `blocked` \| `done` \| `abandoned` | `running` \| `blocked` \| `done` \| `abandoned` |
 | `deps` | list[string] | Task ids that must be `done` first |
 
 Optional: `budget`, `permissions`, `created`, `updated`, `notes`, `artifacts[]`.
