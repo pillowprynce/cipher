@@ -1,6 +1,8 @@
 id: T-002
-goal: Scaffold real pytest for src/ stubs (user lock — Verifier needs executable tests)
+goal: Scaffold real pytest for src/ stubs (user lock — Verifier needs executable tests). Sandbox-only.
 assignee: builder
-status: claimed
+status: done
 deps: [T-000]
-notes: tests/ is .gitkeep only; required before design-doc re-verify PASS
+notes: tests/test_loop.py + test_tools.py + conftest.py; Verifier ran 31 passed 2026-10-07 (logs/T-001-run_test.log).
+evidence:
+  - logs/T-001-run_test.log

@@ -1,10 +1,13 @@
 id: T-001
-goal: Solid GitHub-native Cipher design doc (Research → Analyst → Critic → Verifier). Sandbox-only; no security bypass / credential theft / safeguard evasion / break-ins.
-assignee: analyst
-status: blocked
+goal: Solid GitHub-native Cipher design doc (Research → Analyst → Critic → Verifier). Sandbox-only; no security bypass / credential theft / safeguard evasion / break-ins. User lock: real tests required for Verifier PASS.
+assignee: critic
+status: claimed
 deps: [T-000]
-notes: Verifier FAIL 2026-10-07. Fix Critic B1–B4 + R1–R5 then re-verify. Parallel T-002 pytest.
+notes: "Verifier FAIL then Analyst v0.2 (hard §0.4 test gate + tests/test_design_doc_outline.py). Critic re-red-team next per Coordinator. Evidence: tests/evidence/T-001.yaml (42 passed)."
 artifacts:
   - artifacts/design-doc-outline.md
   - artifacts/critique-design-doc-outline-2026-10-07.md
   - logs/verdict-T-001-2026-10-07.md
+evidence:
+  - tests/evidence/T-001.yaml
+  - logs/T-001-run_test.log

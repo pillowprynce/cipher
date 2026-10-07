@@ -1,0 +1,12 @@
+# Example evidence object (Critic B1 / outline §3.0). Copy to <task_id>.yaml for a real run.
+task_id: T-00X
+git_sha: "REPLACE_WITH_HEAD_SHA"
+paths:
+  - tests/test_design_doc_outline.py
+commands:
+  - pytest -q tests/test_design_doc_outline.py
+exit_codes:
+  - 0
+checked_at: "2026-10-07T00:00:00-05:00"
+log_path: logs/T-00X-pytest.log
+# ci_run_url: "https://github.com/pillowprynce/cipher/actions/runs/REPLACE"

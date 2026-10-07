@@ -1,0 +1,17 @@
+task_id: T-001
+git_sha: "41ff243b162bd6ba5ada0505f64f6f0ab032d996"
+paths:
+  - artifacts/design-doc-outline.md
+  - artifacts/critique-design-doc-outline-2026-10-07.md
+  - tasks/README.md
+  - tests/test_design_doc_outline.py
+  - tests/test_loop.py
+  - tests/test_tools.py
+  - tests/evidence/SCHEMA.example.yaml
+commands:
+  - ".venv/bin/python -m pytest tests/ -v --tb=short"
+exit_codes:
+  - 0
+checked_at: "2026-10-07T09:43:00-05:00"
+log_path: logs/T-001-run_test.log
+notes: "Outline v0.2 hardens user lock (§0.4/§3.0). 42 tests incl. design-doc acceptance. Working tree has uncommitted v0.2 + tests; SHA is last commit pending human/Coordinator commit."

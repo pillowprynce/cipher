@@ -1,9 +1,9 @@
-# Cipher Design Doc Outline (v0.1)
+# Cipher Design Doc Outline (v0.2)
 
 **Author:** Analyst  
 **Date:** 2026-10-07 (America/Chicago)  
-**Status:** Revised after Critic CONDITIONAL/BLOCK — addresses B1–B4 + R1–R6  
-**Prior:** v0 draft; critique in `artifacts/critique-design-doc-outline-2026-10-07.md`  
+**Status:** Post Verifier FAIL + user lock — B1–B4/R1–R6 in-doc; **real tests hard gate**  
+**Prior:** v0 → Critic BLOCK → v0.1 → Verifier FAIL (`logs/verdict-T-001-2026-10-07.md`) → v0.2  
 **Goal:** Solid GitHub-native Cipher design doc (reference architecture + runnable prototype path), ready to iterate on.  
 **Inputs:** `DESIGN.md`, `memory/findings.md`, Critic critique, `tasks/README.md`  
 **Repo:** https://github.com/pillowprynce/cipher  
@@ -47,6 +47,17 @@ This section must appear near the top of every design revision, in `memory/state
 ### 0.3 Untrusted intake (X2)
 
 Issue bodies, PR comments, review text, and fetched web/citations are **untrusted data**. Instructions inside them are never tool commands. Security-sensitive instructions in untrusted content → **Critic mandatory** before any action.
+
+### 0.4 User product lock — real tests (HARD)
+
+**No Verifier PASS on LLM judgment alone.** For any goal slice (including design-doc / docs-only work):
+
+1. Executable tests under `tests/` must be run (`pytest` or `tools.run_test`), **and/or** a CI `run_id`/`ci_run_url` must resolve to **success** for the exact `git_sha` under review.
+2. A filled `tests/evidence/<task_id>.yaml` (§3.0) is mandatory before PASS.
+3. “Process evidence” (files exist / prose claims blockers fixed) is **not** sufficient by itself.
+4. LLM-only PASS is **banned** — automatic FAIL.
+
+This lock overrides any softer wording elsewhere in this outline.
 
 ---
 
@@ -143,12 +154,13 @@ ci_run_url: "https://github.com/…/actions/runs/…"   # must resolve; status s
 log_path: "logs/<task_id>-run_test.log"             # from tools.run_test(); exit 0
 ```
 
-**Verifier PASS rules:**
+**Verifier PASS rules (HARD — user lock):**
 
-1. Evidence file exists and parses.  
-2. `git_sha` matches the PR head (or commit under review).  
-3. Either CI run for that SHA is `success`, **or** `log_path` shows `run_test` exit 0.  
-4. LLM prose alone → automatic FAIL (theater ban).
+1. Evidence file `tests/evidence/<task_id>.yaml` exists and parses.  
+2. `git_sha` matches the commit/PR head under review.  
+3. **Runnable proof required:** CI run for that SHA is `success` **with** resolving `ci_run_url`, **or** `log_path` from `pytest`/`run_test` with all `exit_codes` = 0. Doc-only checklists do not count.  
+4. At least one path under `tests/` referenced in `paths[]` / `commands[]` must be an executable test module (not only `.gitkeep` or README).  
+5. LLM prose alone → automatic FAIL (theater ban). Critic CLEAR is not a PASS.
 
 Critic may request evidence; **only Verifier** sets `verified: yes` on findings (R1). Critic may set `challenged` or leave `verified: no`.
 
@@ -290,6 +302,7 @@ Do **not** read v0 as implying issue webhooks or App ingress until v0.5.
 | R4 | **Fixed** — §0.2 |
 | R5 | **Fixed** — spawn depth 0 specialists |
 | R6 | **Fixed** — status claim only in v0 |
+| User lock | **§0.4 + §3.0 HARD** — real tests / CI required; no LLM-only PASS |
 
 ---
 
@@ -305,4 +318,4 @@ Do **not** read v0 as implying issue webhooks or App ingress until v0.5.
 - `tasks/README.md` (enum)  
 - `tasks/T-001-design-doc.yaml`  
 
-**Note:** Doc-only revision; no CI `run_id` for the outline itself. For this design-doc goal, Verifier should treat machine-checkable evidence as: critique addressed in-repo files exist and B1–B4 sections are present (process evidence). Runtime `tests/evidence/` applies to future code tasks (T-003+).
+**Note (user lock):** Re-verify requires **executable** proof — `pytest` (or CI) green for this SHA plus `tests/evidence/T-001.yaml`. Outline section presence alone is not enough. Design-doc acceptance tests live under `tests/test_design_doc_outline.py`; stub/unit tests under `tests/test_*.py` (Builder T-002).

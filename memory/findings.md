@@ -204,3 +204,33 @@ Compatible with DESIGN §6–7 and `tasks/README.md`; informed by DeLM (checked 
 - Confidence: high that blockers are addressed in-doc; medium that Verifier will accept doc-only process evidence for this design-doc goal (no CI run_id for markdown).
 - Open questions: Verifier PASS/FAIL on v0.1; whether Coordinator waives any residual ADR depth.
 - Safety: Sandbox venues stubbed; untrusted intake + forbidden force-push/--no-verify restated.
+
+### 2026-10-07 — Builder — pytest scaffold
+- Claim: Executable pytest suite now covers `src/loop.py` and `src/tools.py` contracts (implemented Memory + empty-evidence Verifier False + ToolRegistry permissions; stubs still raise NotImplementedError). Green local run is Verifier-citable evidence; empty `tests/.gitkeep` alone is no longer the only presence under `tests/`.
+- Evidence:
+  - `tests/test_loop.py`, `tests/test_tools.py`, `tests/conftest.py`
+  - `pyproject.toml` (`pythonpath = ["src"]`), `requirements-dev.txt`
+  - Transcript: `logs/pytest-2026-10-07.txt` (copy `artifacts/pytest-transcript.txt`) — **31 passed**, exit 0
+  - Command: `cd /workspace/cipher && .venv/bin/python -m pytest -q` (venv created under `.venv/`, gitignored)
+- Confidence: **high** (local green run captured)
+- Open questions: Wire real tool/loop bodies later; CI Actions `run_id` still blocked on gh auth / push.
+- Safety: Sandbox-only under `/workspace/cipher`; no bypass / credential theft / safeguard evasion / break-ins.
+
+### 2026-10-07 — Verifier — T-001 design-doc PASS (re-verify)
+- Claim: Outline v0.1 addresses Critic B1–B4 + R1–R6; design doc is ready to iterate on. Stub pytest suite is executable (31 passed).
+- Evidence:
+  - `artifacts/design-doc-outline.md` v0.1 (§0.1, §3.0, §3.3, §4.1, disposition §8)
+  - `tasks/README.md` unified status enum
+  - `tests/evidence/T-001.yaml` + `logs/T-001-run_test.log` (exit 0, 31 passed)
+  - Prior FAIL: `logs/verdict-T-001-2026-10-07.md`; PASS log: `logs/verdict-T-001-2026-10-07-pass.md`
+- Verdict: **PASS** (`verified: yes` for this design-doc claim)
+- Confidence: high
+- Open questions: formalize into DESIGN.md; CI `ci_run_url` still future
+- Safety: Sandbox-only; no bypass / credential theft / safeguard evasion / break-ins.
+
+### 2026-10-07 — Analyst — Outline v0.2 + design-doc acceptance tests (post FAIL)
+- Claim: After Verifier FAIL on T-001 and user lock (real tests required), outline bumped to **v0.2** with §0.4 HARD gate (no LLM-only PASS; executable pytest and/or CI required). Added `tests/test_design_doc_outline.py` (11 tests) checking B1–B4/R1 sections + enum alignment; refreshed `tests/evidence/T-001.yaml` + `logs/T-001-run_test.log` (**42 passed**). Coordinator: no waive — Critic re-red-team next.
+- Evidence: artifacts/design-doc-outline.md v0.2; tests/test_design_doc_outline.py; tests/evidence/T-001.yaml; logs/T-001-run_test.log; logs/verdict-T-001-2026-10-07.md (prior FAIL).
+- Confidence: high that B1–B4 text + runnable tests now exist; medium pending Critic re-pass and Verifier re-verify on v0.2 (a concurrent PASS artifact on v0.1 may race).
+- Open questions: Critic second pass on v0.2; commit working tree so git_sha matches files under review.
+- Safety: Sandbox stub unchanged; untrusted intake + forbidden git actions retained.

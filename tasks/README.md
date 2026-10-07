@@ -11,10 +11,10 @@ Minimal fields (YAML or Markdown front matter + body):
 | `id` | string | Stable id, e.g. `T-001` |
 | `goal` | string | What done looks like for this slice |
 | `assignee` | string | Role or agent id (`research`, `builder`, …) |
-| `status` | enum | `pending` \| `claimed` \| `running` \| `blocked` \| `done` \| `abandoned` | `running` \| `blocked` \| `done` \| `abandoned` |
+| `status` | enum | `pending` \| `claimed` \| `running` \| `blocked` \| `done` \| `abandoned` |
 | `deps` | list[string] | Task ids that must be `done` first |
 
-Optional: `budget`, `permissions`, `created`, `updated`, `notes`, `artifacts[]`.
+Optional: `budget`, `permissions`, `created`, `updated`, `notes`, `artifacts[]`, `evidence[]` (required before Verifier).
 
 ## Example
 
@@ -39,7 +39,7 @@ Survey prior art...
 ## Lifecycle
 
 1. Coordinator decomposes goal → writes tasks with `deps`
-2. `assign()` marks `assignee` + `running`
+2. `assign()` marks `assignee` + `claimed` (or immediately `running`) — this is the v0 claim mechanism
 3. Agent updates notes / links artifacts
 4. On success → `done`; on dead end → `abandoned` (Coordinator replans)
 5. Critic/Verifier read completed tasks + memory before verdict
