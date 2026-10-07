@@ -1,0 +1,6 @@
+id: T-000
+goal: Scaffold /cipher workspace with DESIGN, role specs, and loop/tools stubs.
+assignee: builder
+status: done
+deps: []
+notes: Completed on box under /workspace/cipher; GitHub push pending auth.
