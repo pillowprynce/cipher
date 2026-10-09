@@ -13,9 +13,7 @@ Verify:
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -23,7 +21,6 @@ from src.loop import (
     Coordinator,
     Decision,
     Goal,
-    Memory,
     Task,
     Verifier,
     assign,
@@ -406,8 +403,9 @@ class TestVerifierFailure:
             goal = Goal(description="Test with missing evidence")
             decision = run(goal, max_iterations=1)
 
-            # Should not reach here; goal should complete with verifier rejection
-            # If we do get a decision, verifier should have rejected it
+            # Should not reach here; goal should complete with
+            # verifier rejection. If we do get a decision, verifier
+            # should have rejected it
             if decision is not None:
                 verifier = Verifier()
                 assert not verifier.passed(decision)
