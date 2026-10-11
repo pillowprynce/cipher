@@ -36,7 +36,7 @@ class ToolError(Exception):
 # Policy tables
 # ---------------------------------------------------------------------------
 
-CMD_ALLOWLIST = {"python3", "python", "pytest", "ls", "cat", "grep", "git"}
+CMD_ALLOWLIST = {"python3", "python", "pytest", "ls", "cat", "grep", "git", "ffmpeg", "ffprobe"}
 GIT_READONLY = {"status", "diff", "log", "show", "rev-parse"}
 
 SECRET_PATTERNS = [
@@ -161,8 +161,9 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "run_cmd",
         "description": (
             "Run a command inside the sandbox WITHOUT a shell. Allowed programs: "
-            "python3, python, pytest, ls, cat, grep, and read-only git "
-            "(status/diff/log/show/rev-parse). Arguments that look like secrets "
+            "python3, python, pytest, ls, cat, grep, read-only git "
+            "(status/diff/log/show/rev-parse), and ffmpeg/ffprobe (media "
+            "encoding only; no network inputs). Arguments that look like secrets "
             "or contain shell metacharacters are rejected."
         ),
         "args": {"argv": "list of strings, e.g. ['python3', 'artifacts/hello.py']"},
@@ -346,6 +347,11 @@ class ToolBelt:
     def call(self, name: str, args: dict | None) -> dict:
         """Dispatch one tool call with permission + budget enforcement."""
         args = args or {}
+        if not isinstance(args, dict):
+            raise ToolError(
+                f"malformed tool call: arguments for {name!r} must be an object, "
+                f"got {type(args).__name__}"
+            )
         if name not in self.tools_allowed:
             raise ToolDenied(f"role {self.role!r} may not use tool {name!r}")
         if self.tools_used >= self.tool_budget:

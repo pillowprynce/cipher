@@ -25,6 +25,7 @@ from src.tasks import TaskError, validate_task  # noqa: E402
 from src.tools import (  # noqa: E402
     ToolBelt,
     ToolDenied,
+    ToolError,
     check_criterion,
 )
 
@@ -172,6 +173,16 @@ class TestSandbox(unittest.TestCase):
             belt = _belt(Path(td))
             with self.assertRaises(ToolDenied):
                 belt.call("run_cmd", {"argv": ["git", "push"]})
+
+    def test_malformed_args_shape_raises_tool_error(self):
+        # A malformed LLM tool call may pass a list instead of a dict;
+        # the loop must get a ToolError (fed back to the agent), never a crash.
+        with tempfile.TemporaryDirectory() as td:
+            belt = _belt(Path(td))
+            with self.assertRaises(ToolError):
+                belt.call("run_cmd", ["ls", "-la", "artifacts"])
+            with self.assertRaises(ToolError):
+                belt.call("read_file", "artifacts/README.md")
 
 
 class TestEvidence(unittest.TestCase):
