@@ -86,7 +86,10 @@ def react_loop(
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({
                     "role": "user",
-                    "content": f"Your last output was malformed: {e}. Reply with ONE strict JSON object only.",
+                    "content": (
+                        f"Your last output was malformed: {e}. "
+                        "Reply with ONE strict JSON object only."
+                    ),
                 })
                 log(f"[{belt.role}] malformed output, re-prompting")
                 continue
@@ -129,7 +132,10 @@ def react_loop(
             messages.append({"role": "assistant", "content": raw})
             messages.append({
                 "role": "user",
-                "content": 'Unknown message type. Use {"type": "tool_call", ...} or {"type": "final", ...} only.',
+                "content": (
+                    'Unknown message type. Use {"type": "tool_call", ...} '
+                    'or {"type": "final", ...} only.'
+                ),
             })
             continue
         raise AgentError(f"unknown message type: {mtype!r}")
@@ -263,9 +269,21 @@ def stub_research(ctx: RunContext, instruction: str) -> dict:
 def stub_builder(ctx: RunContext, instruction: str) -> dict:
     belt = ctx.make_belt("builder", agent_id="root", depth=0,
                          tool_budget=ctx.cfg.max_tool_iterations)
-    script = '#!/usr/bin/env python3\n"""Hello program built by the Cipher builder agent."""\n\n\ndef main() -> None:\n    print("Hello, Cipher!")\n\n\nif __name__ == "__main__":\n    main()\n'
+    script = (
+        "#!/usr/bin/env python3\n"
+        '"""Hello program built by the Cipher builder agent."""\n'
+        "\n"
+        "\ndef main() -> None:\n"
+        '    print("Hello, Cipher!")\n'
+        "\n"
+        '\nif __name__ == "__main__":\n'
+        "    main()\n"
+    )
     belt.call("write_file", {"path": "artifacts/hello.py", "content": script})
-    belt.memory_append({"claim": "artifacts/hello.py written", "evidence": "file exists, prints 'Hello, Cipher!'"})
+    belt.memory_append({
+        "claim": "artifacts/hello.py written",
+        "evidence": "file exists, prints 'Hello, Cipher!'",
+    })
     return _stub_ok(artifacts_written=["artifacts/hello.py"], changes="created hello.py")
 
 
@@ -274,7 +292,10 @@ def stub_analyst(ctx: RunContext, instruction: str) -> dict:
                          tool_budget=ctx.cfg.max_tool_iterations)
     run = belt.call("run_cmd", {"argv": ["python3", "artifacts/hello.py"]})
     out = run["stdout"].strip()
-    belt.memory_append({"claim": "hello.py executes", "evidence": f"stdout={out!r} exit={run['exit_code']}"})
+    belt.memory_append({
+        "claim": "hello.py executes",
+        "evidence": f"stdout={out!r} exit={run['exit_code']}",
+    })
     return _stub_ok(observations=[f"stdout={out!r}"], test_results=["manual run ok"])
 
 

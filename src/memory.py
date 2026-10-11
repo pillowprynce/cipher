@@ -36,7 +36,9 @@ class MemoryStore:
         return d / "findings.jsonl"
 
     def append_finding(self, role: str, finding: dict, agent_id: str = "root") -> str:
-        fid = f"{agent_id}-{int(time.time() * 1000)}-{abs(hash(json.dumps(finding, sort_keys=True))) % 10_000:04d}"
+        stamp = int(time.time() * 1000)
+        digest = abs(hash(json.dumps(finding, sort_keys=True))) % 10_000
+        fid = f"{agent_id}-{stamp}-{digest:04d}"
         record = {
             "id": fid,
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -123,7 +125,10 @@ class MemoryStore:
         for r in findings[-40:]:
             claim = r.get("claim") or r.get("summary") or r.get("decision") or ""
             ev = r.get("evidence") or ""
-            lines.append(f"[{r.get('role')}/{r.get('agent_id')}] {str(claim)[:220]} | evidence: {str(ev)[:220]}")
+            who = f"{r.get('role')}/{r.get('agent_id')}"
+            lines.append(
+                f"[{who}] {str(claim)[:220]} | evidence: {str(ev)[:220]}"
+            )
         text = "\n".join(lines)
         if len(text) > max_chars:
             text = "...(truncated)...\n" + text[-max_chars:]

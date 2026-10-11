@@ -34,7 +34,7 @@ import json
 import sys
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -97,7 +97,10 @@ class SpawnRegistry:
         child_depth = parent_belt.depth + 1
         if child_depth > self.cfg.max_spawn_depth:
             raise ToolDenied(
-                f"spawn refused: depth {child_depth} exceeds max_spawn_depth={self.cfg.max_spawn_depth}"
+                (
+                    f"spawn refused: depth {child_depth} exceeds "
+                    f"max_spawn_depth={self.cfg.max_spawn_depth}"
+                )
             )
         # 2. Total sub-agent limit.
         if self.count >= self.cfg.max_subagents_per_run:
@@ -114,7 +117,10 @@ class SpawnRegistry:
         for anc in self._ancestors(parent_belt):
             if anc.get("specialist") == specialist and anc.get("goal") == goal:
                 raise ToolDenied(
-                    f"spawn refused: cycle detected — ({specialist!r}, goal) already in ancestor chain"
+                    (
+                        "spawn refused: cycle detected — "
+                        f"({specialist!r}, goal) already in ancestor chain"
+                    )
                 )
         # 5. Carve the child's tool budget out of the parent's remaining budget.
         parent_remaining = max(0, parent_belt.tool_budget - parent_belt.tools_used)
@@ -293,8 +299,8 @@ class Loop:
         ctx = self.ctx()
         # PLAN
         self.steps += 1
-        plan_result = run_role(self.cfg, "coordinator", ctx,
-                               "Create the plan for this goal. Spawn specialists where useful.")
+        run_role(self.cfg, "coordinator", ctx,
+                 "Create the plan for this goal. Spawn specialists where useful.")
         self.memory.write_state({"phase": "research", "retries": 0, "run_id": self.run_id})
 
         verdict = "FAIL"

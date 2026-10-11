@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from .config import Config
 
@@ -66,7 +66,10 @@ SUBSHELL = re.compile(r"\$\(")
 def _check_arg_safety(arg: str) -> None:
     for pat in SECRET_PATTERNS:
         if pat.search(arg):
-            raise ToolDenied(f"argument looks like a secret/credential and is blocked: {arg[:40]!r}")
+            raise ToolDenied(
+                "argument looks like a secret/credential and is blocked: "
+                f"{arg[:40]!r}"
+            )
     if SHELL_META.search(arg) or SUBSHELL.search(arg):
         raise ToolDenied(f"argument contains shell metacharacters and is blocked: {arg[:40]!r}")
 
@@ -105,7 +108,11 @@ def check_criterion(criterion: dict, sandbox_root: Path) -> tuple[bool, str]:
             if "expect_in_output" in criterion:
                 want = str(criterion["expect_in_output"])
                 ok = want in out
-                return ok, f"command {' '.join(cmd)}: {'output matched' if ok else 'OUTPUT MISMATCH'} (exit {proc.returncode})"
+                verdict = "output matched" if ok else "OUTPUT MISMATCH"
+                return ok, (
+                    f"command {' '.join(cmd)}: {verdict} "
+                    f"(exit {proc.returncode})"
+                )
             want_code = int(criterion.get("expect_exit_code", 0))
             ok = proc.returncode == want_code
             return ok, f"command {' '.join(cmd)}: exit {proc.returncode} (wanted {want_code})"
@@ -139,7 +146,10 @@ TOOL_SCHEMAS: list[dict] = [
     },
     {
         "name": "write_file",
-        "description": "Write (create or overwrite) a text file inside the sandbox. Path is relative to the repo root.",
+        "description": (
+            "Write (create or overwrite) a text file inside the sandbox. "
+            "Path is relative to the repo root."
+        ),
         "args": {"path": "string, relative path", "content": "string"},
     },
     {
@@ -164,7 +174,10 @@ TOOL_SCHEMAS: list[dict] = [
     },
     {
         "name": "memory_read",
-        "description": "Read shared findings recorded so far in this run (plus your spawn context).",
+        "description": (
+            "Read shared findings recorded so far in this run "
+            "(plus your spawn context)."
+        ),
         "args": {},
     },
     {
@@ -258,7 +271,10 @@ class ToolBelt:
             raise ToolDenied(f"command not on the allowlist: {argv[0]!r}")
         if prog == "git":
             if len(argv) < 2 or argv[1] not in GIT_READONLY:
-                raise ToolDenied("only read-only git subcommands are allowed: status/diff/log/show/rev-parse")
+                raise ToolDenied(
+                    "only read-only git subcommands are allowed: "
+                    "status/diff/log/show/rev-parse"
+                )
         for a in argv[1:]:
             _check_arg_safety(a)
         try:
@@ -319,7 +335,10 @@ class ToolBelt:
         if "check_evidence" in allowed:
             out.append({
                 "name": "check_evidence",
-                "description": "Deterministically evaluate one task success_criterion (file_exists / command).",
+                "description": (
+                    "Deterministically evaluate one task success_criterion "
+                    "(file_exists / command)."
+                ),
                 "args": {"criterion": "object, one entry from the task's success_criteria"},
             })
         return out

@@ -51,8 +51,6 @@ memory_append tool so later phases can see them.\
 
 
 def load_roles_index() -> dict[str, dict[str, Any]]:
-    import json
-
     # Minimal YAML-subset parser: roles.yaml is written in a restricted style
     # (see agents/roles.yaml). We parse it without dependencies.
     text = (AGENTS_DIR / "roles.yaml").read_text(encoding="utf-8")

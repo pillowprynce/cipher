@@ -25,7 +25,6 @@ from src.tasks import TaskError, validate_task  # noqa: E402
 from src.tools import (  # noqa: E402
     ToolBelt,
     ToolDenied,
-    ToolError,
     check_criterion,
 )
 
@@ -65,7 +64,8 @@ class TestTaskSchema(unittest.TestCase):
         validate_task(VALID_TASK)
 
     def test_missing_goal_fails(self):
-        bad = dict(VALID_TASK); del bad["goal"]
+        bad = dict(VALID_TASK)
+        del bad["goal"]
         with self.assertRaises(TaskError):
             validate_task(bad)
 
@@ -177,7 +177,8 @@ class TestSandbox(unittest.TestCase):
 class TestEvidence(unittest.TestCase):
     def test_file_exists(self):
         with tempfile.TemporaryDirectory() as td:
-            p = Path(td); (p / "a.txt").write_text("x")
+            p = Path(td)
+            (p / "a.txt").write_text("x")
             ok, _ = check_criterion({"type": "file_exists", "path": "a.txt"}, p)
             self.assertTrue(ok)
             ok, _ = check_criterion({"type": "file_exists", "path": "nope.txt"}, p)
