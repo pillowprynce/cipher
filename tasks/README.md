@@ -1,51 +1,34 @@
-# Tasks
+# tasks/
 
-Task records live here. The Coordinator creates and updates them; specialists mark progress.
+Task instances are JSON files validated against `schema.json` (see
+`src/tasks.py`). Drop a goal here, then run:
+
+```bash
+python -m src.loop --task tasks/<your-task>.json
+```
 
 ## Schema
 
-Minimal fields (YAML or Markdown front matter + body):
+| Field | Required | Meaning |
+|---|---|---|
+| `id` | yes | Unique task id |
+| `goal` | yes | The goal statement agents work toward |
+| `context` | no | Background the agents should know |
+| `constraints` | no | Hard limits, e.g. `["stdlib only", "no network"]` |
+| `budget` | no | `{"max_retries": N, "max_steps": N}` (defaults from env/config) |
+| `success_criteria` | yes | Non-empty list of checkable criteria |
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Stable id, e.g. `T-001` |
-| `goal` | string | What done looks like for this slice |
-| `assignee` | string | Role or agent id (`research`, `builder`, …) |
-| `status` | enum | `pending` \| `claimed` \| `running` \| `blocked` \| `done` \| `abandoned` |
-| `deps` | list[string] | Task ids that must be `done` first |
+Each success criterion:
 
-Optional: `budget`, `permissions`, `created`, `updated`, `notes`, `artifacts[]`, `evidence[]` (required before Verifier).
+| Field | Required | Meaning |
+|---|---|---|
+| `id` | yes | Criterion id |
+| `description` | yes | Human-readable description |
+| `type` | yes | `file_exists` or `command` |
+| `path` | for `file_exists` | Relative path that must exist |
+| `cmd` | for `command` | argv list to run in the sandbox |
+| `expect_in_output` | no | Substring that must appear in stdout+stderr |
+| `expect_exit_code` | no | Expected exit code (default 0) |
 
-## Example
-
-```yaml
-id: T-001
-goal: Survey prior art on multi-agent coding swarms; note 5 systems and tradeoffs.
-assignee: research
-status: pending
-deps: []
-budget: medium
-```
-
-```markdown
-# T-001
-
-Survey prior art...
-
-## Notes
-- (agent fills during run)
-```
-
-## Lifecycle
-
-1. Coordinator decomposes goal → writes tasks with `deps`
-2. `assign()` marks `assignee` + `claimed` (or immediately `running`) — this is the v0 claim mechanism
-3. Agent updates notes / links artifacts
-4. On success → `done`; on dead end → `abandoned` (Coordinator replans)
-5. Critic/Verifier read completed tasks + memory before verdict
-
-## Conventions
-
-- One concern per task when possible
-- Prefer parallel independent tasks (authorized “cheat”: multiple approaches)
-- Abandon failed approaches explicitly—do not leave zombie `running` tasks
+The verifier checks every criterion; the loop independently re-runs every
+check before accepting a PASS. There is no partial credit.

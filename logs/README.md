@@ -1,5 +1,7 @@
-# Logs
+# logs/
 
-Per-run traces: assignments, tool calls summaries, critiques, verifier verdicts.
+One log file per run: `logs/<run-id>.log`. Records every phase, tool call,
+denial, spawn event, verifier verdict, and the final spawn tree.
 
-Suggested name: `run-YYYYMMDD-HHMMSS.log` or `run-<goal-slug>.md`.
+Logs never contain API keys (the key is only ever sent as an HTTPS header
+and is never printed or persisted).

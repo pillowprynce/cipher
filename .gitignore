@@ -1,8 +1,18 @@
 __pycache__/
 *.py[cod]
-.pytest_cache/
+*.egg-info/
 .venv/
 venv/
-*.egg-info/
 .DS_Store
-logs/*.log
+# run outputs are transient; keep the READMEs
+memory/*/
+!memory/README.md
+!memory/.gitkeep
+artifacts/*
+!artifacts/README.md
+!artifacts/.gitkeep
+logs/*
+!logs/README.md
+!logs/.gitkeep
+tests/evidence-*.json
+tests/__pycache__/
