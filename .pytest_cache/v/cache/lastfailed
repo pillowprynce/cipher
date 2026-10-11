@@ -1,0 +1,3 @@
+{
+  "tests/test_cipher.py::TestLoopTermination::test_config_dry_run_when_no_key": true
+}

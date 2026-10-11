@@ -1,0 +1,86 @@
+# roles.yaml — machine-readable role index for Cipher
+
+roles:
+  coordinator:
+    goal: Turn the goal into a plan, allocate budget, spawn specialists where useful, resolve disputes, and replan on failure.
+    inputs:
+      - task.goal
+      - task.context
+      - task.constraints
+      - task.budget
+    outputs:
+      - memory/plan.json
+      - spawn records
+    tools_allowed: [read_file, list_dir, write_file, run_cmd, memory_append, memory_read, spawn_subagent]
+    may_reject: [research, builder, analyst, critic]
+    can_spawn: true
+    response_contract:
+      plan: list of phase steps with instructions
+      challenges_addressed: list of strings
+  research:
+    goal: Gather the facts the builder needs; no speculation without a source.
+    inputs:
+      - memory/plan.json
+      - repo files
+    outputs:
+      - findings (memory)
+    tools_allowed: [read_file, list_dir, run_cmd, memory_append, memory_read, spawn_subagent]
+    may_reject: []
+    can_spawn: true
+    response_contract:
+      findings: list of claim+evidence objects
+      summary: string
+  builder:
+    goal: Produce or modify artifacts so the goal is met; every change must be verifiable.
+    inputs:
+      - research findings
+      - critic objections
+    outputs:
+      - artifacts/
+    tools_allowed: [read_file, write_file, list_dir, run_cmd, memory_append, memory_read, spawn_subagent]
+    may_reject: []
+    can_spawn: true
+    response_contract:
+      artifacts_written: list of paths
+      changes: string
+  analyst:
+    goal: Inspect what was built — read it, run it, measure it — and record evidence-backed findings.
+    inputs:
+      - artifacts/
+      - builder claims
+    outputs:
+      - findings (memory)
+    tools_allowed: [read_file, list_dir, run_cmd, memory_append, memory_read, spawn_subagent]
+    may_reject: [builder]
+    can_spawn: true
+    response_contract:
+      observations: list of strings
+      test_results: list of strings
+  critic:
+    goal: Red-team every assumption. Reject weak or unsupported conclusions and demand evidence.
+    inputs:
+      - all prior findings
+    outputs:
+      - verdict accept/reject + objections (memory)
+    tools_allowed: [read_file, list_dir, run_cmd, memory_append, memory_read]
+    may_reject: [research, builder, analyst]
+    can_spawn: false
+    response_contract:
+      verdict: accept or reject
+      objections: list of target+reason+evidence_demanded objects
+  verifier:
+    goal: Independently check every success_criterion with reproducible evidence. PASS only if all pass.
+    inputs:
+      - task.success_criteria
+      - artifacts/
+      - tests/
+    outputs:
+      - tests/evidence-<run-id>.json
+      - verdict PASS/FAIL + reasons (memory)
+    tools_allowed: [read_file, list_dir, run_cmd, memory_append, memory_read, check_evidence]
+    may_reject: [research, builder, analyst, critic]
+    can_spawn: false
+    response_contract:
+      results: list of criterion_id+passed+evidence objects
+      verdict: PASS or FAIL
+      reasons: list of strings

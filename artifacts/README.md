@@ -1,5 +1,7 @@
-# Artifacts
+# artifacts/
 
-Builder (and others) drop deliverables here: patches, docs, binaries of record, diagrams.
+Deliverables produced by builder agents (code, docs, configs).
 
-Keep large binaries out of git when possible; link or `.gitignore` as needed.
+Files here are created via the sandboxed `write_file` tool. The verifier
+checks them against the task's `success_criteria`; nothing here is "done"
+until evidence says so.

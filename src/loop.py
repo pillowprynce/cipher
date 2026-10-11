@@ -1,363 +1,458 @@
-"""Cipher execution loop (MVP runtime).
+"""Cipher coordinator loop.
 
-Canonical design from DESIGN.md / Copilot share:
+Pipeline:
+    PLAN -> RESEARCH -> BUILD -> ANALYZE -> CRITIQUE -> VERIFY -> DONE
+                                                  VERIFY --FAIL--> REVISE
+    REVISE -> (retry: BUILD | backtrack: RESEARCH | replan: RESEARCH | abort: DONE)
 
-    while not goal.completed:
-        tasks = coordinator.decompose(goal)
-        agents = assign(tasks)
-        results = run_agents(agents)
-        memory.update(results)
-        critique = red_team(results)
-        decision = coordinator.evaluate(results, critique)
-        if verifier.passed(decision):
-            return decision
-        coordinator.replan()
+Bounded: max_retries VERIFY->REVISE cycles and max_steps total phase
+executions. The loop always terminates.
 
-Safety: aggressive persistence only inside an authorized sandbox.
-Never bypass security, steal credentials/data, evade safeguards, or break in.
+Spawning: any role with the `spawn_subagent` tool may spawn specialists.
+The runtime enforces:
+  - max spawn depth (config.max_spawn_depth),
+  - max total sub-agents per run (config.max_subagents_per_run),
+  - no permission escalation (child tools ⊆ parent tools),
+  - spawn-cycle detection (a (specialist, goal) pair may not repeat in one
+    ancestor chain),
+  - child tool budget carved out of the parent's remaining budget.
+
+The spawn tree is recorded in memory/<run-id>/spawn_tree.json and in the
+run log. Sub-agent findings are namespaced: memory/<run-id>/spawns/<id>/.
+
+CLI:
+    export CIPHER_API_KEY=...   # real-agent mode (default/primary path)
+    python -m src.loop --goal "Write a fizzbuzz program to artifacts/fizzbuzz.py"
+    python -m src.loop --task tasks/example-hello-task.json
+
+    CIPHER_DRY_RUN=1 python -m src.loop --task tasks/example-hello-task.json
 """
-
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
 
+from .agents import AgentError, RunContext, run_role, run_specialist_live, stub_specialist
+from .config import Config, load_config
+from .memory import MemoryStore
+from .roles import SAFETY_BOUNDARY, get_role
+from .tasks import TaskError, load_task
+from .tools import ToolBelt, ToolDenied, ToolError, check_criterion
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+PHASES = ["research", "build", "analyze", "critique", "verify"]
+ROLE_FOR_PHASE = {
+    "research": "research",
+    "build": "builder",
+    "analyze": "analyst",
+    "critique": "critic",
+    "verify": "verifier",
+}
+
+
+# ---------------------------------------------------------------------------
+# Spawn registry
+# ---------------------------------------------------------------------------
 
 @dataclass
-class Goal:
-    description: str
-    completed: bool = False
-    acceptance: list[str] = field(default_factory=list)
+class SpawnRegistry:
+    cfg: Config
+    memory: MemoryStore
+    log: Any = None
+    count: int = 0
 
+    def _ancestors(self, belt: ToolBelt) -> list[dict]:
+        """Ancestor chain of the requesting belt, root-first."""
+        chain: list[dict] = []
+        node_id = belt.agent_id
+        tree = {r["spawn_id"]: r for r in self.memory.read_spawn_tree()}
+        seen = set()
+        while node_id not in ("root", "", None) and node_id not in seen:
+            seen.add(node_id)
+            rec = tree.get(node_id)
+            if not rec:
+                break
+            chain.append(rec)
+            node_id = rec.get("parent_id")
+        return list(reversed(chain))
+
+    def handle(self, spec: dict, parent_belt: ToolBelt) -> dict:
+        """Execute a spawn_subagent request. Returns a result dict for the parent."""
+        specialist = str(spec.get("specialist", "")).strip()
+        goal = str(spec.get("goal", "")).strip()
+        if not specialist or not goal:
+            raise ToolError("spawn_subagent needs 'specialist' and 'goal'")
+        requested_tools = spec.get("tools") or []
+        if not isinstance(requested_tools, list):
+            raise ToolError("'tools' must be a list of tool names")
+
+        # 1. Depth limit.
+        child_depth = parent_belt.depth + 1
+        if child_depth > self.cfg.max_spawn_depth:
+            raise ToolDenied(
+                f"spawn refused: depth {child_depth} exceeds max_spawn_depth={self.cfg.max_spawn_depth}"
+            )
+        # 2. Total sub-agent limit.
+        if self.count >= self.cfg.max_subagents_per_run:
+            raise ToolDenied(
+                f"spawn refused: already at max_subagents_per_run={self.cfg.max_subagents_per_run}"
+            )
+        # 3. No permission escalation: child tools ⊆ parent tools.
+        parent_tools = set(parent_belt.tools_allowed)
+        illegal = [t for t in requested_tools if t not in parent_tools]
+        if illegal:
+            raise ToolDenied(f"spawn refused: tools {illegal} exceed parent's permissions")
+        # 4. Cycle detection: same (specialist, goal) must not repeat in the
+        #    ancestor chain (prevents A->B->A ping-pong).
+        for anc in self._ancestors(parent_belt):
+            if anc.get("specialist") == specialist and anc.get("goal") == goal:
+                raise ToolDenied(
+                    f"spawn refused: cycle detected — ({specialist!r}, goal) already in ancestor chain"
+                )
+        # 5. Carve the child's tool budget out of the parent's remaining budget.
+        parent_remaining = max(0, parent_belt.tool_budget - parent_belt.tools_used)
+        try:
+            wanted = int(spec.get("max_tool_iterations", self.cfg.max_specialist_tool_iters))
+        except (TypeError, ValueError):
+            raise ToolError("'max_tool_iterations' must be an integer")
+        child_budget = max(1, min(wanted, parent_remaining, self.cfg.max_specialist_tool_iters))
+        parent_belt.tools_used += child_budget  # carve out up front
+
+        spawn_id = f"s{self.count + 1:02d}-{uuid.uuid4().hex[:6]}"
+        self.count += 1
+        context = str(spec.get("context", ""))[:4000]
+
+        record = {
+            "spawn_id": spawn_id,
+            "parent_id": parent_belt.agent_id,
+            "parent_role": parent_belt.role,
+            "specialist": specialist,
+            "goal": goal,
+            "depth": child_depth,
+            "tools": sorted(set(requested_tools) & parent_tools),
+            "tool_budget": child_budget,
+            "status": "running",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        self.memory.record_spawn(record)
+        self._log(f"[spawn] {parent_belt.role}/{parent_belt.agent_id} -> "
+                  f"{specialist}/{spawn_id} (depth {child_depth}, budget {child_budget})")
+
+        child_belt = ToolBelt(
+            cfg=self.cfg,
+            sandbox_root=REPO_ROOT,
+            memory=self.memory,
+            run_id=parent_belt.run_id,
+            role=f"specialist:{specialist}",
+            agent_id=spawn_id,
+            depth=child_depth,
+            tools_allowed=record["tools"],
+            spawn_handler=self.handle,  # children may spawn within the depth limit
+            tool_budget=child_budget,
+        )
+        # Seed the child's namespaced memory with the parent-provided context.
+        self.memory.append_finding(
+            f"specialist:{specialist}",
+            {"claim": "spawn context from parent",
+             "evidence": context or "(no context provided)"},
+            agent_id=spawn_id,
+        )
+        try:
+            if self.cfg.dry_run:
+                result = stub_specialist(_ctx_for(self, parent_belt), child_belt, specialist, goal)
+            else:
+                result = run_specialist_live(
+                    self.cfg, specialist=specialist, goal=goal, context=context,
+                    parent_role=parent_belt.role, belt=child_belt, log=self._log,
+                )
+            status = "completed"
+        except Exception as e:  # noqa: BLE001 - record child failure, don't crash the run
+            result = {"summary": f"child failed: {type(e).__name__}: {e}",
+                      "outputs": [], "evidence": "child raised an exception"}
+            status = "failed"
+        self.memory.append_finding(
+            f"specialist:{specialist}",
+            {"claim": f"child {spawn_id} {status}: {result.get('summary', '')}",
+             "evidence": json.dumps(result)[:2000]},
+            agent_id=spawn_id,
+        )
+        self.memory.update_spawn(spawn_id, status=status,
+                                 finished_at=time.strftime("%Y-%m-%dT%H:%M:%S"))
+        self._log(f"[spawn] {spawn_id} {status}: {str(result.get('summary'))[:120]}")
+        # The parent inspects / accepts / rejects / retries via memory + follow-ups.
+        return {"ok": True, "spawn_id": spawn_id, "status": status, "result": result}
+
+    def _log(self, msg: str) -> None:
+        if self.log:
+            self.log(msg)
+
+
+def _ctx_for(registry: SpawnRegistry, belt: ToolBelt) -> RunContext:
+    # Minimal context for dry-run specialists (they only need cfg + log).
+    from .agents import RunContext as RC
+    return RC(cfg=registry.cfg, run_id=belt.run_id, task={},
+              memory=belt.memory, make_belt=None, log=registry._log)
+
+
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
 
 @dataclass
-class Task:
-    id: str
-    goal: str
-    assignee: str
-    status: str = "pending"  # pending|running|blocked|done|abandoned
-    deps: list[str] = field(default_factory=list)
-    budget: str = "medium"
+class RunResult:
+    run_id: str
+    verdict: str  # PASS | FAIL
+    retries_used: int
+    steps: int
+    spawns: int
+    evidence_path: str
+    log_path: str
 
 
-@dataclass
-class Decision:
-    summary: str
-    evidence: list[str] = field(default_factory=list)
-    artifacts: list[str] = field(default_factory=list)
+class Loop:
+    def __init__(self, cfg: Config, task: dict, run_id: str | None = None) -> None:
+        self.cfg = cfg
+        self.task = task
+        self.run_id = run_id or f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        self.memory = MemoryStore(REPO_ROOT, self.run_id)
+        self.log_path = REPO_ROOT / cfg.logs_dir / f"{self.run_id}.log"
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._log_fh = open(self.log_path, "a", encoding="utf-8")
+        self.registry = SpawnRegistry(cfg, self.memory, log=self.log)
+        # If this run id already has a spawn tree (resumed run), continue counting.
+        self.registry.count = len(self.memory.read_spawn_tree())
+        self.retries_used = 0
+        self.steps = 0
 
+    # -- logging ---------------------------------------------------------
+    def log(self, msg: str) -> None:
+        line = f"{time.strftime('%H:%M:%S')} {msg}"
+        print(line, flush=True)
+        self._log_fh.write(line + "\n")
+        self._log_fh.flush()
 
-class Memory:
-    """Shared memory facade — backs memory/findings.md + state.md later."""
-
-    def __init__(self) -> None:
-        self.entries: list[dict[str, Any]] = []
-
-    def update(self, results: list[dict[str, Any]]) -> None:
-        self.entries.extend(results)
-
-
-class Coordinator:
-    """Coordinator: decomposes goals into tasks, evaluates results, replans on failure."""
-
-    def decompose(self, goal: Goal) -> list[Task]:
-        """Break goal into concrete tasks with dependencies.
-
-        MVP: deterministic three-task decomposition for all goals.
-        """
-        return [
-            Task(
-                id="T-001",
-                goal="Inspect repository structure and context",
-                assignee="research",
-                status="pending",
-                deps=[],
-                budget="medium",
-            ),
-            Task(
-                id="T-002",
-                goal="Analyze findings and summarize the highest-priority issue",
-                assignee="analyst",
-                status="pending",
-                deps=["T-001"],
-                budget="medium",
-            ),
-            Task(
-                id="T-003",
-                goal="Verify evidence exists and is valid",
-                assignee="verifier",
-                status="pending",
-                deps=["T-002"],
-                budget="small",
-            ),
-        ]
-
-    def evaluate(
-        self, results: list[dict[str, Any]], critique: dict[str, Any]
-    ) -> Decision:
-        """Bundle results + critique into a Decision.
-
-        MVP: collects evidence and artifacts from successful tasks.
-        """
-        all_evidence: list[str] = []
-        all_artifacts: list[str] = []
-        summary_parts: list[str] = []
-
-        for result in results:
-            if result.get("status") == "success":
-                all_evidence.extend(result.get("evidence", []))
-                all_artifacts.extend(result.get("artifacts", []))
-                if "summary" in result:
-                    summary_parts.append(result["summary"])
-
-        summary = " → ".join(summary_parts) if summary_parts else "Goal executed"
-
-        return Decision(
-            summary=summary,
-            evidence=all_evidence,
-            artifacts=all_artifacts,
+    def make_belt(self, role: str, agent_id: str = "root",
+                  depth: int = 0, tool_budget: int | None = None) -> ToolBelt:
+        tools_allowed = get_role(role).get("tools_allowed", [])
+        spawn_handler = self.registry.handle if "spawn_subagent" in tools_allowed else None
+        return ToolBelt(
+            cfg=self.cfg,
+            sandbox_root=REPO_ROOT,
+            memory=self.memory,
+            run_id=self.run_id,
+            role=role,
+            agent_id=agent_id,
+            depth=depth,
+            tools_allowed=list(tools_allowed),
+            spawn_handler=spawn_handler,
+            tool_budget=tool_budget,
         )
 
-    def replan(self) -> None:
-        """Replan on failure.
+    def ctx(self) -> RunContext:
+        return RunContext(cfg=self.cfg, run_id=self.run_id, task=self.task,
+                          memory=self.memory, make_belt=self.make_belt, log=self.log)
 
-        MVP: Just print. Later, modify task list and retry.
-        """
-        print("[Coordinator] Replanning after failure...")
+    # -- evidence ----------------------------------------------------------
+    def write_evidence(self, results: list[dict]) -> Path:
+        path = REPO_ROOT / self.cfg.tests_dir / f"evidence-{self.run_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"run_id": self.run_id, "task_id": self.task.get("id"),
+                       "results": results}, f, indent=2)
+        return path
 
+    def independent_check(self) -> tuple[bool, list[dict]]:
+        """The loop re-runs every success criterion itself. A verifier PASS
+        only stands if this independent check also passes."""
+        results = []
+        for crit in self.task.get("success_criteria", []):
+            passed, detail = check_criterion(crit, REPO_ROOT)
+            results.append({"criterion_id": crit.get("id"), "passed": passed, "detail": detail})
+        return all(r["passed"] for r in results), results
 
-class Verifier:
-    """Verifier: checks evidence and artifacts before declaring success."""
+    # -- main ---------------------------------------------------------------
+    def run(self) -> RunResult:
+        budget = self.task.get("budget", {})
+        max_retries = int(budget.get("max_retries", self.cfg.default_max_retries))
+        max_steps = int(budget.get("max_steps", self.cfg.default_max_steps))
+        mode = "dry-run (stubs)" if self.cfg.dry_run else f"live ({self.cfg.model})"
+        self.log(f"=== Cipher run {self.run_id} [{mode}] ===")
+        self.log(f"goal: {self.task['goal']}")
+        self.log(f"budget: max_retries={max_retries} max_steps={max_steps} "
+                 f"max_spawn_depth={self.cfg.max_spawn_depth} "
+                 f"max_subagents={self.cfg.max_subagents_per_run}")
+        self.memory.write_state({"phase": "plan", "retries": 0, "run_id": self.run_id})
 
-    def passed(self, decision: Decision) -> bool:
-        """Refuse success without evidence."""
-        if not decision.evidence:
-            print("[Verifier] No evidence was produced.")
-            return False
+        ctx = self.ctx()
+        # PLAN
+        self.steps += 1
+        plan_result = run_role(self.cfg, "coordinator", ctx,
+                               "Create the plan for this goal. Spawn specialists where useful.")
+        self.memory.write_state({"phase": "research", "retries": 0, "run_id": self.run_id})
 
-        for evidence_path in decision.evidence:
-            path = Path(evidence_path)
-            if not path.exists():
-                print(f"[Verifier] Missing evidence: {evidence_path}")
-                return False
+        verdict = "FAIL"
+        evidence_results: list[dict] = []
+        phase_idx = 0
+        backtrack_to = 0  # on backtrack, restart phases from here
 
-        for artifact_path in decision.artifacts:
-            path = Path(artifact_path)
-            if not path.exists():
-                print(f"[Verifier] Missing artifact: {artifact_path}")
-                return False
-
-        return True
-
-
-def assign(tasks: list[Task]) -> list[tuple[Task, Any]]:
-    """Attach runtime fields: role, goal, context, tools, memory, permissions, budget.
-
-    MVP: map tasks to deterministic local agents from the registry.
-    """
-    from src.agents import AGENT_REGISTRY
-
-    assignments = []
-    for task in tasks:
-        agent = AGENT_REGISTRY.get(task.assignee)
-        if agent is None:
-            raise ValueError(f"Unknown assignee: {task.assignee}")
-        assignments.append((task, agent))
-    return assignments
-
-
-def run_agents(assignments: list[tuple[Task, Any]]) -> list[dict[str, Any]]:
-    """Execute agents sequentially.
-
-    MVP: deterministic local agents that produce evidence files.
-    """
-    results = []
-    repo_root = Path(__file__).resolve().parents[1]
-    log_dir = repo_root / "logs"
-    log_dir.mkdir(exist_ok=True)
-    run_log = log_dir / "run-mvp.log"
-
-    with run_log.open("a", encoding="utf-8") as log_handle:
-        for task, agent in assignments:
-            print(f"[Executor] Running {task.id} ({task.assignee})...")
-            task.status = "running"
-            log_handle.write(f"[Executor] Running {task.id} ({task.assignee})\n")
-
+        while True:
+            if self.steps >= max_steps:
+                self.log("max_steps exhausted -> FAIL")
+                break
+            phase = PHASES[phase_idx]
+            role = ROLE_FOR_PHASE[phase]
+            self.steps += 1
+            self.log(f"--- phase {phase} (step {self.steps}) ---")
+            self.memory.write_state({"phase": phase, "retries": self.retries_used,
+                                     "run_id": self.run_id})
             try:
-                agent_result = agent.run(task)
-                result = {
-                    "task_id": agent_result.task_id,
-                    "status": agent_result.status,
-                    "evidence": agent_result.evidence,
-                    "artifacts": agent_result.artifacts,
-                    "summary": agent_result.summary,
-                    "notes": agent_result.notes,
-                }
-                results.append(result)
-                task.status = "done" if agent_result.status == "success" else "abandoned"
-                log_handle.write(f"  ✓ {agent_result.summary}\n")
-                print(f"  ✓ {agent_result.summary}")
-            except Exception as exc:  # pragma: no cover - defensive
-                task.status = "abandoned"
-                result = {
-                    "task_id": task.id,
-                    "status": "failed",
-                    "evidence": [],
-                    "artifacts": [],
-                    "summary": f"Task failed: {exc}",
-                    "notes": str(exc),
-                }
-                results.append(result)
-                log_handle.write(f"  ✗ {exc}\n")
-                print(f"  ✗ FAILED: {exc}")
+                result = run_role(self.cfg, role, ctx, f"Execute the {phase} phase.")
+            except (AgentError, ToolDenied, ToolError) as e:
+                self.log(f"[{role}] ERROR: {type(e).__name__}: {e}")
+                result = {"status": "error", "error": str(e)}
 
-    return results
+            if phase == "critique":
+                v = result.get("verdict", "accept")
+                self.log(f"[critic] verdict: {v} ({len(result.get('objections', []))} objections)")
+            if phase == "verify":
+                agent_verdict = result.get("verdict", "FAIL")
+                self.log(f"[verifier] agent verdict: {agent_verdict}")
+                ok, evidence_results = self.independent_check()
+                self.write_evidence(evidence_results)
+                self.log(f"[loop] independent evidence check: {'PASS' if ok else 'FAIL'}")
+                if agent_verdict == "PASS" and ok:
+                    verdict = "PASS"
+                    break
+                # FAIL path: revise / retry / backtrack
+                self.retries_used += 1
+                if self.retries_used > max_retries:
+                    self.log("max_retries exhausted -> FAIL")
+                    break
+                reasons = result.get("reasons", []) or [r["detail"] for r in evidence_results
+                                                        if not r["passed"]]
+                self.log(f"[loop] revise #{self.retries_used}: {reasons}")
+                decision = self._coordinator_revise(ctx, reasons)
+                self.log(f"[coordinator] revise decision: {decision}")
+                if decision["decision"] == "abort":
+                    break
+                target = decision.get("target_phase", "build")
+                backtrack_to = PHASES.index(target) if target in PHASES else 1
+                phase_idx = backtrack_to
+                continue
+            phase_idx += 1
+            if phase_idx >= len(PHASES):
+                # Should not happen (verify always breaks/continues), guard anyway.
+                break
 
-
-def red_team(results: list[dict[str, Any]]) -> dict[str, Any]:
-    """Critic / red-team: attack assumptions.
-
-    MVP: deterministic checks for missing evidence/artifacts.
-    """
-    findings = {"blocking": [], "warnings": []}
-
-    for result in results:
-        if result.get("status") == "failed":
-            findings["blocking"].append(
-                f"Task {result['task_id']} failed: {result['summary']}"
-            )
-
-        if result.get("status") == "success" and not result.get("evidence"):
-            findings["warnings"].append(
-                f"Task {result['task_id']} has no evidence"
-            )
-
-        for evidence_path in result.get("evidence", []):
-            if not Path(evidence_path).exists():
-                findings["blocking"].append(
-                    f"Evidence missing for {result['task_id']}: {evidence_path}"
-                )
-
-        for artifact_path in result.get("artifacts", []):
-            if not Path(artifact_path).exists():
-                findings["blocking"].append(
-                    f"Artifact missing for {result['task_id']}: {artifact_path}"
-                )
-
-    return findings
-
-
-def write_task_records(tasks: list[Task]) -> None:
-    """Write task records using the repo's existing task format."""
-    repo_root = Path(__file__).resolve().parents[1]
-    tasks_dir = repo_root / "tasks"
-    tasks_dir.mkdir(exist_ok=True)
-
-    for task in tasks:
-        record_path = tasks_dir / f"{task.id}.md"
-        if record_path.exists():
-            continue
-
-        record_path.write_text(
-            "\n".join(
-                [
-                    f"# {task.id}",
-                    "",
-                    f"Goal: {task.goal}",
-                    f"Assignee: {task.assignee}",
-                    f"Status: {task.status}",
-                    f"Dependencies: {', '.join(task.deps) if task.deps else 'none'}",
-                    f"Budget: {task.budget}",
-                    "",
-                    "## Notes",
-                    "- Deterministic MVP execution",
-                ]
-            ) + "\n",
-            encoding="utf-8",
+        tree = self.memory.read_spawn_tree()
+        self.log(f"=== run {self.run_id}: {verdict} "
+                 f"(steps={self.steps}, retries={self.retries_used}, spawns={len(tree)}) ===")
+        for rec in tree:
+            self.log(f"  spawn tree: {rec['parent_id']} -> "
+                     f"{rec['specialist']}/{rec['spawn_id']} "
+                     f"[depth {rec['depth']}, {rec['status']}]")
+        self._log_fh.close()
+        return RunResult(
+            run_id=self.run_id,
+            verdict=verdict,
+            retries_used=self.retries_used,
+            steps=self.steps,
+            spawns=len(tree),
+            evidence_path=str(REPO_ROOT / self.cfg.tests_dir / f"evidence-{self.run_id}.json"),
+            log_path=str(self.log_path),
         )
 
-
-def run(goal: Goal, *, max_iterations: int = 32) -> Optional[Decision]:
-    """Main Cipher loop. Returns Decision on PASS, None if budget exhausted."""
-    coordinator = Coordinator()
-    verifier = Verifier()
-    memory = Memory()
-
-    print(f"\n[Loop] Goal: {goal.description}")
-
-    for iteration in range(max_iterations):
-        if goal.completed:
-            break
-
-        print(f"\n[Loop] Iteration {iteration + 1}")
-        tasks = coordinator.decompose(goal)
-        write_task_records(tasks)
-
-        print(f"[Loop] Decomposed into {len(tasks)} tasks:")
-        for task in tasks:
-            deps_str = f" (depends on {', '.join(task.deps)})" if task.deps else ""
-            print(f"  {task.id}: {task.assignee}{deps_str}")
-
-        assignments = assign(tasks)
-        results = run_agents(assignments)
-        memory.update(results)
-
-        critique = red_team(results)
-        if critique["blocking"]:
-            print("[Loop] Blocking findings:")
-            for finding in critique["blocking"]:
-                print(f"  - {finding}")
-        if critique["warnings"]:
-            print("[Loop] Warnings:")
-            for warning in critique["warnings"]:
-                print(f"  - {warning}")
-
-        decision = coordinator.evaluate(results, critique)
-        print(f"\n[Loop] Summary: {decision.summary}")
-        print(f"  Evidence: {len(decision.evidence)} items")
-        print(f"  Artifacts: {len(decision.artifacts)} items")
-
-        if verifier.passed(decision):
-            print("\n[Loop] Verifier passed")
-            goal.completed = True
-            return decision
-
-        print("\n[Loop] Verifier failed. Replanning...")
-        coordinator.replan()
-
-    return None
+    def _coordinator_revise(self, ctx: RunContext, reasons: list[str]) -> dict:
+        """Ask the coordinator what to do after a FAIL. Dry-run: backtrack to
+        build (fix) with simple heuristics; live: LLM decision."""
+        if self.cfg.dry_run:
+            return {"decision": "retry", "target_phase": "build",
+                    "rationale": "dry-run: retry build phase to fix failed criteria"}
+        belt = self.make_belt("coordinator")
+        system = (
+            "You are the Cipher coordinator. The verifier FAILED this run. "
+            "Decide: retry (same plan, fix and rebuild), backtrack (assumptions wrong, "
+            "redo research), replan (new strategy), or abort (out of scope / budget).\n"
+            + SAFETY_BOUNDARY
+            + "\nReply with ONE strict JSON object: "
+            '{"type": "final", "result": {"decision": "retry|backtrack|replan|abort", '
+            '"target_phase": "research|build|analyze", "rationale": "..."}}'
+        )
+        user = (f"Goal: {self.task['goal']}\nFailure reasons:\n"
+                + "\n".join(f"- {r}" for r in reasons)
+                + f"\n\nMemory:\n{self.memory.context_summary()}\n"
+                + f"Retries used: {self.retries_used}")
+        from .agents import react_loop
+        try:
+            return react_loop(self.cfg, belt, system, user,
+                              ["decision", "target_phase", "rationale"], self.log)
+        except AgentError as e:
+            self.log(f"[coordinator] revise failed ({e}); defaulting to abort")
+            return {"decision": "abort", "target_phase": "build",
+                    "rationale": f"coordinator error: {e}"}
 
 
-def main() -> int:
-    """CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Cipher: multi-agent coding swarm"
-    )
-    parser.add_argument(
-        "--goal",
-        type=str,
-        required=True,
-        help="Goal for the swarm to execute",
-    )
-    args = parser.parse_args()
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
-    print(f"Goal: {args.goal}")
-    goal = Goal(description=args.goal)
-    decision = run(goal)
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Cipher multi-agent coding swarm")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--goal", help="ad-hoc goal string")
+    src.add_argument("--task", help="path to a task JSON file")
+    ap.add_argument("--run-id", help="explicit run id (default: generated)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="force dry-run stub agents even if a key is set")
+    args = ap.parse_args(argv)
 
-    if decision is not None:
-        print("RESULT: PASS")
-        print(f"Decision: {decision.summary}")
-        print(f"Evidence: {len(decision.evidence)}")
-        print(f"Artifacts: {len(decision.artifacts)}")
-        return 0
+    cfg = load_config()
+    if args.dry_run:
+        cfg.dry_run = True
 
-    print("RESULT: FAIL")
-    return 1
+    if args.task:
+        try:
+            task = load_task(args.task)
+        except TaskError as e:
+            print(f"task error: {e}", file=sys.stderr)
+            return 2
+    else:
+        task = {
+            "id": "adhoc",
+            "goal": args.goal,
+            "context": "",
+            "constraints": ["stdlib only", "stay inside the repo sandbox"],
+            "budget": {"max_retries": cfg.default_max_retries,
+                       "max_steps": cfg.default_max_steps},
+            "success_criteria": [],
+        }
+        if not task["success_criteria"]:
+            print("note: ad-hoc goal has no success_criteria; verifier will trivially PASS "
+                  "only if a goal file check is added — prefer --task", file=sys.stderr)
+
+    # Fail fast with a helpful message in live mode without a key.
+    if not cfg.dry_run and not cfg.api_key:
+        # load_config already sets dry_run when the key is missing; this is
+        # just a guard for explicit --dry-run=False style flows.
+        pass
+
+    loop = Loop(cfg, task, run_id=args.run_id)
+    try:
+        result = loop.run()
+    except KeyboardInterrupt:
+        print("\ninterrupted", file=sys.stderr)
+        return 130
+    print(f"verdict: {result.verdict}  run_id: {result.run_id}  "
+          f"steps: {result.steps}  retries: {result.retries_used}  spawns: {result.spawns}")
+    print(f"log: {result.log_path}")
+    print(f"evidence: {result.evidence_path}")
+    return 0 if result.verdict == "PASS" else 1
 
 
 if __name__ == "__main__":
